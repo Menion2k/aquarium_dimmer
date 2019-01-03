@@ -1,0 +1,14 @@
+const char Chart_bundle_js_name[] PROGMEM = "/Chart.bundle.js";
+const char bootstrap_min_js_name[] PROGMEM = "/bootstrap.min.js";
+const char bootstrap_min_css_name[] PROGMEM = "/bootstrap.min.css";
+const char dashboard_css_name[] PROGMEM = "/dashboard.css";
+const char feather_min_js_name[] PROGMEM = "/feather.min.js";
+const char index_html_name[] PROGMEM = "/index.html";
+const char jquery_3_3_1_min_js_name[] PROGMEM = "/jquery-3.3.1.min.js";
+const char moment_min_js_name[] PROGMEM = "/moment.min.js";
+const char network_html_name[] PROGMEM = "/network.html";
+const char network_json_name[] PROGMEM = "/network.json";
+const char status_html_name[] PROGMEM = "/status.html";
+const char status_json_name[] PROGMEM = "/status.json";
+const char sunshine_html_name[] PROGMEM = "/sunshine.html";
+const char sunshine_json_name[] PROGMEM = "/sunshine.json";
