@@ -1,3 +1,20 @@
+#include <AsyncEventSource.h>
+#include <AsyncJson.h>
+#include <AsyncWebSocket.h>
+#include <ESPAsyncWebServer.h>
+#include <SPIFFSEditor.h>
+#include <StringArray.h>
+#include <WebAuthentication.h>
+#include <WebHandlerImpl.h>
+#include <WebResponseImpl.h>
+
+#include <AsyncPrinter.h>
+#include <async_config.h>
+#include <ESPAsyncTCP.h>
+#include <ESPAsyncTCPbuffer.h>
+#include <SyncClient.h>
+#include <tcp_axtls.h>
+
 #ifndef __SKETCH_H__
 #define __SKETCH_H__
 
@@ -25,7 +42,6 @@
 #include <ESP8266WiFiScan.h>
 #include <ESP8266WiFiSTA.h>
 #include <ESP8266WiFiType.h>
-#include <ESP8266WebServer.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <WiFiClientSecureAxTLS.h>
@@ -101,7 +117,7 @@ typedef struct Dimmer_s {
 DimmerInfoModel infoModel;
 Dimmer dimmer;
 Ticker pwm;
-ESP8266WebServer server(80);
+AsyncWebServer server(80);
 RTC_DS1307 rtc;
 DateTime now;
 
@@ -176,108 +192,57 @@ String getContentType(String filename) { // convert the file extension to the MI
   return "text/plain";
 }
 
-void handlePage(void)
+void handlePage(AsyncWebServerRequest *request)
 {
   size_t data_len, len;
   File f;
   String contentType, path;
   
-  DIMMER_DEBUG(Serial.println("Request URI: " + server.uri()););
+  DIMMER_DEBUG(Serial.println("Request URI: " + request->url()););
 
-  if(server.uri().endsWith("/"))
-    path = server.uri() + "index.html";
+  if(request->url().endsWith("/"))
+    path = request->url() + "index.html";
   else
-    path = server.uri();
+    path = request->url();
 
-  if (SPIFFS.exists(path)) {
-    f = SPIFFS.open(path, "r");
-    if(!f)
-    {
-      DIMMER_DEBUG(Serial.println("Unable to open: " + path);)
-      return;
-    }
-  }
-  else
-  {
-    DIMMER_DEBUG(Serial.println("File: " + path + " not found");)
-    return;
-  }
-  
-  contentType = getContentType(path);
-  
-  DIMMER_DEBUG(Serial.println(path + ": = " + contentType);)
-      
-  data_len = f.size();
-
-  DIMMER_DEBUG(Serial.println(path + " size " + data_len);)
-
-  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-  //server.sendHeader("Content-Length", (String)data_len);
-  server.send(200, contentType, "");
-  
-  while(data_len > 0)
-  {
-    if(data_len > MAX_WEB_CHUNK_SIZE)
-    {
-      len = f.read(data, MAX_WEB_CHUNK_SIZE);
-      server.sendContent_P((char *)data, len);
-      data_len -= len;
-    }
-    else
-    {
-      len = f.read(data, data_len);
-      server.sendContent_P((char *)data, len);
-      data_len = 0;
-    }
-  }
-  DIMMER_DEBUG(Serial.println("");) 
-  server.sendContent("");
-  f.close();
+  request->send(SPIFFS, path);
 }
 
-void handleFileRead(void) { // send the right file to the client (if it exists)
-  String path = server.uri();
-  if (path.endsWith("/"))
-    path += "index.html";
-  
-  Serial.println("handleFileRead: " + path);
- 
-  String contentType = getContentType(path);            // Get the MIME type
-  if (SPIFFS.exists(path)) {                            // If the file exists
-    File file = SPIFFS.open(path, "r");                 // Open it
-    size_t sent = server.streamFile(file, contentType); // And send it to the client
-    file.close();                                       // Then close the file again
-    return;
-  }
-  Serial.println("\tFile Not Found");
-                                           // If the file doesn't exist, return false
-}
-
-void handleNotFound(void)
+void handleNotFound(AsyncWebServerRequest *request)
 {
   String message = "File Not Found\n\n";
   message += "URI: ";
-  message += server.uri();
+  message += request->url();
   message += "\nMethod: ";
-  message += (server.method() == HTTP_GET) ? "GET" : "POST";
+  message += (request->method() == HTTP_GET) ? "GET" : "POST";
   message += "\nArguments: ";
-  message += server.args();
+  message += request->args();
   message += "\n";
 
-  for (uint8_t i = 0; i < server.args(); i++) {
-    message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
+  for (uint8_t i = 0; i < request->args(); i++) {
+    message += " " +  request->argName(i) + ": " +  request->arg(i) + "\n";
   }
 
-  server.send(404, "text/plain", message);
+  request->send(404, "text/plain", message);
 }
 
-void handleStatusPost(void)
+void nullHandler(AsyncWebServerRequest *request)
 {
-  StaticJsonBuffer<1024> jsonBuffer;
-  JsonArray &status = jsonBuffer.parseArray(server.arg("plain"));
+  
+}
+
+void nullUpload(AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final)
+{
+  
+}
+
+void statusPostJson(AsyncWebServerRequest *request, JsonVariant &json)
+{
+  JsonArray &status = json.as<JsonArray>();
+    
   if(!status.success()) 
   {
-    DIMMER_DEBUG(Serial.print("Error in deserialize JSON"););
+    DIMMER_DEBUG(Serial.println("Error in deserialize JSON"););
   }
   else
   {
@@ -293,18 +258,16 @@ void handleStatusPost(void)
     }
   }  
 
-  server.setContentLength(CONTENT_LENGTH_NOT_SET);
-  server.send(200, "text/html", "");
-  server.sendContent("");
+  request->send(200, "text/html", "");  
 }
 
-void handleSunshinePost(void)
+void sunshinePostJson(AsyncWebServerRequest *request, JsonVariant &json)
 {
-  StaticJsonBuffer<1024> jsonBuffer;
-  JsonObject &object = jsonBuffer.parseObject(server.arg("plain"));
+  JsonObject &object = json.as<JsonObject>();
+  
   if(!object.success()) 
   {
-    DIMMER_DEBUG(Serial.print("Error in deserialize JSON: "););
+    DIMMER_DEBUG(Serial.println("Error in deserialize JSON"););
   }
   else
   { 
@@ -327,38 +290,46 @@ void handleSunshinePost(void)
     }
   }
 
-  server.setContentLength(CONTENT_LENGTH_NOT_SET);
-  server.send(200, "text/html", "");
-  server.sendContent("");
+  request->send(200, "text/html", "");  
 }
 
-void handleNetworkPost(void)
+void networkPostJson(AsyncWebServerRequest *request, JsonVariant &json)
+{
+
+}
+
+void handleNetworkPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
 {
 
 }
 
 void initWebServer(void)
 {
+  AsyncCallbackJsonWebHandler* statusJson = new AsyncCallbackJsonWebHandler("/rest/status.json", statusPostJson);
+  AsyncCallbackJsonWebHandler* sunshineJson = new AsyncCallbackJsonWebHandler("/rest/sunshine.json", sunshinePostJson);
+  AsyncCallbackJsonWebHandler* networkJson = new AsyncCallbackJsonWebHandler(network_html_name, networkPostJson);
+  
+  
   server.on(Chart_bundle_js_name, handlePage);
   server.on(bootstrap_min_css_name, handlePage);
   server.on(bootstrap_min_js_name, handlePage);
   server.on(dashboard_css_name, handlePage);
   server.on(feather_min_js_name, handlePage);
-  server.on(F("/"), handlePage);
+  server.on(("/"), handlePage);
   server.on(index_html_name, handlePage);
   server.on(jquery_3_3_1_min_js_name, handlePage);
   server.on(moment_min_js_name, handlePage);
 
   server.on(network_html_name, HTTP_GET, handlePage);
-  server.on(network_html_name, HTTP_POST, handleNetworkPost);
+  server.addHandler(networkJson);
   server.on(network_json_name, handlePage);
 
   server.on(status_html_name, HTTP_GET, handlePage);
-  server.on(status_html_name, HTTP_POST, handleStatusPost);
+  server.addHandler(statusJson);
   server.on(status_json_name, handlePage);
 
   server.on(sunshine_html_name, HTTP_GET, handlePage);
-  server.on(sunshine_html_name, HTTP_POST, handleSunshinePost);
+  server.addHandler(sunshineJson);
   server.on(sunshine_json_name, handlePage);
 
   server.onNotFound(handleNotFound);
@@ -441,5 +412,5 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
-  server.handleClient();
+
 }
