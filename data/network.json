@@ -1,0 +1,22 @@
+[
+    {
+        "SSID": "Prova1",
+        "CRYPT": "WPA2",
+        "STRENGTH": "40"
+    },
+    {
+        "SSID": "Prova2",
+        "CRYPT": "WPA2",
+        "STRENGTH": "35"
+    },
+    {
+        "SSID": "Prova3",
+        "CRYPT": "WPA2",
+        "STRENGTH": "65"
+    },
+    {
+        "SSID": "Prova4",
+        "CRYPT": "WPA",
+        "STRENGTH": "50"
+    }
+]

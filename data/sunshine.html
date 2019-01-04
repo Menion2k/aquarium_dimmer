@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="">
+    <meta name="author" content="">
+	 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+     <meta http-equiv="Pragma" content="no-cache"/>
+     <meta http-equiv="Expires" content="0"/>
+    <!-- Bootstrap core CSS -->
+    <link href="bootstrap.min.css" rel="stylesheet">
+    <!-- Custom styles for this template -->
+    <link href="dashboard.css" rel="stylesheet">
+	<style>
+	/* Style the tab content */
+		.time-slot-hidden {
+		display: none;
+		}
+        .spinner {
+            width: 100px;
+        }
+        .spinner input {
+            text-align: right;
+        }
+        .input-group-btn-vertical {
+            position: relative;
+            white-space: nowrap;
+            width: 1%;
+            vertical-align: middle;
+            display: table-cell;
+        }
+        .input-group-btn-vertical > .btn {
+            display: block;
+            float: none;
+            width: 100%;
+            max-width: 100%;
+            padding: 8px;
+            margin-left: -1px;
+            position: relative;
+            border-radius: 0;
+        }
+        .input-group-btn-vertical > .btn:first-child {
+            border-top-right-radius: 4px;
+        }
+        .input-group-btn-vertical > .btn:last-child {
+            margin-top: -2px;
+            border-bottom-right-radius: 4px;
+        }
+        .input-group-btn-vertical i{
+            position: absolute;
+            top: 0;
+            left: 4px;
+        } 
+
+        .icon_arrow {
+            margin: 0 0px;
+        }   
+    </style>
+   	<script src="jquery-3.3.1.min.js"></script>
+    <script>window.jQuery || document.write('<script src="jquery-3.3.1.min.js.js"><\/script>')</script>
+    <script src="bootstrap.min.js"></script>    
+  </head>	
+<body>  
+	<canvas class="my-4 w-100" id="myChart" width="900" height="380"></canvas>
+    <h2>Sunshine timings</h2>
+	<div class="tab">
+		<button class="btn btn-sm btn-outline-secondary active" onclick="CreateTableFromJSON(0)" data-toggle="button" autocomplete="off">T1</button>
+		<button class="btn btn-sm btn-outline-secondary" onclick="CreateTableFromJSON(1)">T2</button>
+		<button class="btn btn-sm btn-outline-secondary" onclick="CreateTableFromJSON(2)">T3</button>
+		<button class="btn btn-sm btn-outline-secondary" onclick="CreateTableFromJSON(3)">T4</button>
+		<button class="btn btn-sm btn-outline-secondary" onclick="CreateTableFromJSON(4)">T5</button>
+		<button class="btn btn-sm btn-outline-secondary" onclick="CreateTableFromJSON(5)">T6</button>
+		<button class="btn btn-sm btn-outline-secondary" onclick="CreateTableFromJSON(6)">T7</button>
+		<button class="btn btn-sm btn-outline-secondary" onclick="CreateTableFromJSON(7)">T8</button>
+		<button class="btn btn-sm btn-outline-secondary" onclick="CreateTableFromJSON(8)">T9</button>
+		<button class="btn btn-sm btn-outline-secondary" onclick="CreateTableFromJSON(9)">T10</button>
+		<button class="btn btn-sm btn-outline-secondary" onclick="CreateTableFromJSON(10)">T11</button>
+		<button class="btn btn-sm btn-outline-secondary" onclick="CreateTableFromJSON(11)">T12</button>
+		<button class="btn btn-sm btn-outline-secondary" onclick="CreateTableFromJSON(12)">T13</button>
+		<button class="btn btn-sm btn-outline-secondary" onclick="CreateTableFromJSON(13)">T14</button>
+		<button class="btn btn-sm btn-outline-secondary" onclick="CreateTableFromJSON(14)">T15</button>
+		<button class="btn btn-sm btn-outline-secondary" onclick="CreateTableFromJSON(15)">T16</button>
+	</div>
+    <div id="t1" class="table-responsive time-slot-hidden" style="display:block">
+	<p id="showData"></p>
+	<!--script type="text/javascript">
+            CreateTableFromJSON(0);
+    </script-->
+		
+    </div>
+    <button type="button" class="btn btn-primary" aria-pressed="false" autocomplete="off" onclick="SubmitJSON()">
+        Submit
+      </button>
+	</body>
+
+    <script src="Chart.bundle.js"></script>
+    <script src="moment.min.js"></script>  
+    <script>
+    var line_colors = ['#00bfff', '#c80000',  '#00c800', '#dcdc00', '#dc00dc', '#64641e', '#fa641e', '#32fac8']
+	var myChart;
+    var Sunshine = [];
+    var currentTable;
+
+    function SubmitJSON() {
+        for(var i = 0; i < Sunshine.length; i++)
+        {
+            $.ajax({
+                url: 'rest/sunshine.json',
+                type: 'POST',
+                data: JSON.stringify(Sunshine[i]),
+                contentType: 'application/json',
+                dataType: 'json',
+                async: false,
+                success: function(msg) {
+                    alert(msg);
+                }
+            });
+        }
+    } 
+
+    function update_chart() 
+    {
+		myChart.data.datasets = [];
+
+        dataset = [];
+        var m = [], x0 = [], y0 = [];
+		for(var i = 0; i < Sunshine.length; i++) 
+        {
+            for(var j = 0; j < Sunshine[i]["SUNSHINE"].length; j++)
+			{                    
+				if(i === 0)
+				{
+                    /* Calculate over midnight fitting line coefficients */
+                    first = moment.duration(Sunshine[Sunshine.length-1]["SUNSHINE"][j]["Time"], "HH:mm");
+                    first = 24*60*60 - first.asSeconds();
+                    x0.push(first);
+                    second = moment.duration(Sunshine[0]["SUNSHINE"][j]["Time"], "HH:mm").asSeconds();
+                    x = x0[j]+second;
+                    y0.push(Sunshine[Sunshine.length-1]["SUNSHINE"][j]["PWM"]);
+                    y = Sunshine[0]["SUNSHINE"][j]["PWM"]-y0[j];
+                    m.push( y / x );
+
+            		dataset[j] = [];
+                    
+                    /* Draw 00:00 point */
+                    var sample = new Object();
+                    sample.t = moment("00:00", 'HH:mm');
+                    sample.y = m[j]*x0[j]+y0[j];
+                    dataset[j].push(sample);    
+                }
+				
+				var sample = new Object();
+				sample.t = moment(Sunshine[i]["SUNSHINE"][j]["Time"], 'HH:mm');
+				sample.y = Sunshine[i]["SUNSHINE"][j]["PWM"];
+				dataset[j].push(sample);
+
+                if(i == Sunshine.length-1)
+                {
+                    /* Draw 24:00 point based on fitting line */
+                    var sample = new Object();
+                    sample.t = moment("24:00", 'HH:mm');
+                    sample.y = m[j]*(x0[j])+y0[j];
+                    dataset[j].push(sample); 
+                }
+		    }
+		}
+
+		for(var i = 0; i < Sunshine[0]["SUNSHINE"].length; i++)
+		{
+		  var newDataset = {
+                lineTension: 0,
+                backgroundColor: 'transparent',
+                borderColor: line_colors[i],
+                borderWidth: 4,
+                pointBackgroundColor: line_colors[i],
+                data: dataset[i]
+          };
+
+		  myChart.data.datasets.push(newDataset);
+		}
+	  
+	  myChart.update();
+	}
+    function storeJSON(data) {
+        Sunshine[data["ID"]] = data;
+    }
+
+    function LoadJSON(idx) {
+        $.ajax({ 
+            url: "sunshine.json",
+			data: {
+				table: idx
+			},	
+            dataType: 'json', 
+            async: false, 
+            success: storeJSON
+        });
+    }
+
+    function dim_time_clicked() {
+        console.log("dim_time changed");
+        ret = $(".dim_time").each(function(index) 
+        {
+            console.log("time: " + index + " " + this.value);
+            Sunshine[currentTable]["SUNSHINE"][index]["Time"] = this.value;
+        });
+        update_chart();
+    };
+
+    function dim_value_clicked() {
+        console.log("dim_value changed");
+        ret = $(".dim_value").each(function(index) 
+        {
+            console.log("value: " + index + " " + this.value);
+            Sunshine[currentTable]["SUNSHINE"][index]["PWM"] = this.value;
+        });
+        update_chart();
+    };
+
+    function CreateTableFromJSON(table_idx) {
+        currentTable = table_idx;
+        var col = [];
+        for (var i = 0; i < Sunshine[table_idx]["SUNSHINE"].length; i++) {
+            for (var key in Sunshine[table_idx]["SUNSHINE"][i]) {
+                if (col.indexOf(key) === -1) {
+                    col.push(key);
+                }   
+            }
+        }
+        // CREATE DYNAMIC TABLE.
+        var table = document.createElement("table");
+
+        // CREATE HTML TABLE HEADER ROW USING THE EXTRACTED HEADERS ABOVE.
+        var tr = table.insertRow(-1);                   // TABLE ROW.
+        table.className = "table table-striped table-sm";
+        for (var i = 0; i < col.length; i++) {
+            var th = document.createElement("th");      // TABLE HEADER.
+            th.innerHTML = col[i];
+            tr.appendChild(th);
+        }
+
+    // ADD JSON DATA TO THE TABLE AS ROWS.
+    for (var i = 0; i < Sunshine[table_idx]["SUNSHINE"].length; i++) {
+
+        tr = table.insertRow(-1);
+
+        for (var j = 0; j < col.length; j++) {
+            var tabCell = tr.insertCell(-1);
+            if(j === 0)
+            {
+                tabCell.innerHTML = Sunshine[table_idx]["SUNSHINE"][i][col[j]];
+            }
+            else if(j === 1)
+            {
+                var input_elem = document.createElement("INPUT");
+                input_elem.setAttribute("type", "time");
+                input_elem.className = "form-control dim_time";
+                input_elem.setAttribute("value", Sunshine[table_idx]["SUNSHINE"][i][col[j]]);
+                tabCell.appendChild(input_elem);
+            }
+            else
+            {
+                var input_elem = document.createElement("INPUT");
+                input_elem.setAttribute("type", "text");
+                input_elem.className = "form-control dim_value";
+                input_elem.setAttribute("value", Sunshine[table_idx]["SUNSHINE"][i][col[j]]);
+                build_html = '<div class="input-group spinner">';
+                build_html += input_elem.outerHTML;
+                build_html += '<div class="input-group-btn-horizontal">'
+                +    '<div><button class="btn btn-default up-button icon_arrow" type="button">'
+                +    '<svg style="width:24px;height:24px" viewBox="0 0 24 24">'
+                +    '<path fill="#000000" d="M7,15L12,10L17,15H7Z">'
+                +    '</svg>'
+                +    '</button></div>'
+                +    '<div"><button class="btn btn-default down-button icon_arrow" type="button">'
+                +    '<svg style="width:24px;height:24px" viewBox="0 0 24 24">'
+                +    '<path fill="#000000" d="M7,10L12,15L17,10H7Z">'
+                +    '</svg>'
+                +    '</button></div>'
+                +    '</div></div>';  
+                tabCell.innerHTML = build_html;
+            }				
+        }
+    }
+
+    // FINALLY ADD THE NEWLY CREATED TABLE WITH JSON DATA TO A CONTAINER.
+    var divContainer = document.getElementById("showData");
+    divContainer.innerHTML = "";
+    divContainer.appendChild(table);
+    $(".dim_time").change(dim_time_clicked);
+    $(".dim_value").change(dim_value_clicked);
+    register_spinner();
+}
+
+function register_spinner() {
+  $('.spinner .up-button').on('click', function() {
+    input = $(this).parent().parent();
+    input = input.siblings();
+    input.val( parseInt($('.spinner input').val(), 10) + 1);
+    dim_value_clicked();
+  });
+  $('.spinner .down-button').on('click', function() {
+    input = $(this).parent().parent();
+    input = input.siblings();
+    input.val( parseInt($('.spinner input').val(), 10) - 1);
+    dim_value_clicked();
+  });
+};
+
+function onLoad() {
+    var ctx = document.getElementById("myChart");
+    label_id = ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00", "16:00", "18:00", "20:00", "22:00", "24:00"];
+    labeltime = [];
+	
+    for(i = 0; i < label_id.length; i++)
+	{
+		labeltime.push(moment(label_id[i], 'HH:mm'))
+	}
+	
+    myChart = new Chart(ctx, 
+    {
+        type: 'line',
+        data: {
+	        labels: labeltime,
+        },
+        options: {
+		    animation: false,
+            responsive: true,
+            scales: {
+			    xAxes: [{
+			        type: 'time',
+			        time: {
+                        unit: 'hour',
+					        displayFormats: {
+                                minute: 'HH:mm'
+                            }
+			        }
+
+			    }],
+			    
+                yAxes: [{
+                    ticks: {
+                        beginAtZero: true
+                    }
+                }]
+            },
+            legend: {
+                display: false,
+            }
+        }
+    });
+	for (var i = 0; i < 16; i++) {
+        LoadJSON(i);
+    }    
+    $.when(storeJSON).then(CreateTableFromJSON(0));
+    update_chart();
+}
+
+window.onload = onLoad;
+</script>
+
+</html>

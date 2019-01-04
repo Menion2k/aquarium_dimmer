@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+        <meta name="description" content="">
+        <meta name="author" content="">
+	     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+         <meta http-equiv="Pragma" content="no-cache"/>
+         <meta http-equiv="Expires" content="0"/>
+        <!-- Bootstrap core CSS -->
+        <link href="bootstrap.min.css" rel="stylesheet">
+        <!-- Custom styles for this template -->
+        <link href="dashboard.css" rel="stylesheet">
+	    <style>
+	    </style>
+   	    <script src="jquery-3.3.1.min.js"></script>
+        <script>window.jQuery || document.write('<script src="jquery-3.3.1.min.js.js"><\/script>')</script>
+        <script src="bootstrap.min.js"></script>    
+    </head>	
+    <body>
+        <div class="container-fluid">
+            <label>Current PWM</label>
+            <form class="form-horizontal" role="form">  
+            <div class="form-group">
+                <div class="row">
+                    <div class="col-md-1">    
+                        <label>CH1</label>
+                    </div>
+                     <div class="col-md-8">
+                        <input type="range" class="form-control-range current_pmw" value="10" max="100" min="0">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-1">    
+                        <label>CH2</label>
+                    </div>
+                    <div class="col-md-8">
+                        <input type="range" class="form-control-range current_pmw" value="10" max="100" min="0">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-1">    
+                        <label>CH3</label>
+                    </div>
+                    <div class="col-md-8">
+                        <input type="range" class="form-control-range current_pmw" value="10" max="100" min="0">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-1">    
+                        <label>CH4</label>
+                    </div>
+                    <div class="col-md-8">
+                        <input type="range" class="form-control-range current_pmw" value="10" max="100" min="0">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-1">    
+                        <label>CH5</label>
+                    </div>
+                    <div class="col-md-8">
+                        <input type="range" class="form-control-range current_pmw" value="10" max="100" min="0">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-1">    
+                        <label>CH6</label>
+                    </div>
+                    <div class="col-md-8">
+                        <input type="range" class="form-control-range current_pmw" value="10" max="100" min="0">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-1">    
+                        <label>CH7</label>
+                    </div>
+                    <div class="col-md-8">
+                        <input type="range" class="form-control-range current_pmw" value="10" max="100" min="0">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-1">    
+                        <label>CH8</label>
+                    </div>
+                    <div class="col-md-8">
+                        <input type="range" class="form-control-range current_pmw" value="10" max="100" min="0">
+                    </div>
+                </div>
+            </div>    
+            </form>
+        </div>
+    </body>
+    <script src="moment.min.js"></script> 
+    <script>
+    
+    var Status;
+    
+    function sendJSON() {
+        $.ajax({
+            url: 'rest/status.json',
+            type: 'POST',
+            data: JSON.stringify(Status),
+            contentType: 'application/json',
+            dataType: 'json',
+            async: false,
+            success: function(msg) {
+                alert(msg);
+            }
+        });
+    } 
+
+    function sliderChanged() {
+        $(".current_pmw").each(function(index) {
+            Status[index]["PWM"] = this.value;
+        });
+        sendJSON();
+    };
+
+    function updateSliders() {
+        $(".current_pmw").each(function(index) {
+            this.value = Status[index]["PWM"];
+        });
+    }
+
+    function storeJSON(data) {
+        Status = data
+    }
+
+    function LoadJSON() {
+        $.ajax({ 
+            url: "status.json", 
+            dataType: 'json', 
+            async: false, 
+            success: storeJSON
+        });
+    }
+
+    function onLoad() {
+        LoadJSON();
+        updateSliders();
+        $(".current_pmw").change(sliderChanged);
+    };
+
+    window.onload = onLoad;
+</script>
+
+</html>

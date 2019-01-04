@@ -55,6 +55,7 @@
 #include "html.h"
 #endif
 
+
 #define DEBUG_DIMMER
 
 #if defined(DEBUG_DIMMER)
@@ -71,11 +72,12 @@
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 
 #if defined(DEBUG_DIMMER)
-#define NUM_OF_PWM_CHANNELS     6
+#define NUM_OF_PWM_CHANNELS     8
 #else
 #define NUM_OF_PWM_CHANNELS     8
 #endif
 
+#define NUM_OF_SUNSHINE_SLOTS  16
 #define PWM_UPDATE_RATE         1.0f
 
 #define MAX_WEB_CHUNK_SIZE    256
@@ -102,7 +104,7 @@ typedef struct DimmerInfoModel_s {
     char hh;
     char mm;
     char pwm;
-  } sunshine[NUM_OF_PWM_CHANNELS];
+  } sunshine[NUM_OF_SUNSHINE_SLOTS][NUM_OF_PWM_CHANNELS];
 
   char currentMode;
   unsigned char crc8;
@@ -125,19 +127,92 @@ uint8_t data[MAX_WEB_CHUNK_SIZE];
 
 const IPAddress subnet(255,255,255,0);
 
+WiFiEventHandler onStationModeConnectedHandler;
+WiFiEventHandler onStationModeDisconnectedHandler;
+WiFiEventHandler onStationModeAuthModeChangedHandler;
+WiFiEventHandler onStationModeGotIPHandler;
+WiFiEventHandler onStationModeDHCPTimeoutHandler;
+WiFiEventHandler onSoftAPModeStationConnectedHandler;
+WiFiEventHandler onSoftAPModeStationDisconnectedHandler;
+WiFiEventHandler onSoftAPModeProbeRequestReceivedHandler;
+
+String macToString(const unsigned char* mac) {
+  char buf[20];
+  snprintf(buf, sizeof(buf), "%02x:%02x:%02x:%02x:%02x:%02x",
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  return String(buf);
+}
+
+String getTimeString(const int idx, const int j)
+{
+  char buf[8];
+    snprintf(buf, sizeof(buf), "%02d:%02d", infoModel.sunshine[idx][j].hh, infoModel.sunshine[idx][j].mm);
+  return String(buf);
+}
+
+void onStationModeConnected(const WiFiEventStationModeConnected &ev)
+{
+  Serial.print("Connected to SSID: " + ev.ssid);
+  Serial.print(" BSSID: " + macToString(ev.bssid));
+  Serial.println(" ch: " + String(ev.channel));
+}
+
+void onStationModeDisconnected(const WiFiEventStationModeDisconnected &ev)
+{
+  Serial.print("Disconnected from SSID: " + ev.ssid);
+  Serial.print(" BSSID: " + macToString(ev.bssid));
+  Serial.println(" reason: " + String(ev.reason));
+
+}
+
+void onStationModeAuthModeChanged(const WiFiEventStationModeAuthModeChanged &ev)
+{
+  Serial.println("STA Auth mode changed to: " + String(ev.newMode) + " from: " + String(ev.oldMode));
+}
+
+void onStationModeGotIP(const WiFiEventStationModeGotIP &ev)
+{
+  Serial.println("STA IP: " + ev.ip.toString() + " mask: " + ev.mask.toString() + " gw: " + ev.gw.toString());
+}
+
+void onStationModeDHCPTimeout(void)
+{
+  Serial.println("DHCP Timeout!");
+}
+
+void onSoftAPModeStationConnected(const WiFiEventSoftAPModeStationConnected &ev)
+{
+  Serial.print("Connected STA: " + String(ev.aid));
+  Serial.println(" MAC: " + macToString(ev.mac));
+}
+
+void onSoftAPModeStationDisconnected(const WiFiEventSoftAPModeStationDisconnected &ev)
+{
+  Serial.print("Disconnected STA: " + String(ev.aid));
+  Serial.println(" MAC: " + macToString(ev.mac));
+}
+
+
+void onSoftAPModeProbeRequestReceived(const WiFiEventSoftAPModeProbeRequestReceived& evt) {
+  /*Serial.print("Probe request from: ");
+  Serial.print(macToString(evt.mac));
+  Serial.print(" RSSI: ");
+  Serial.println(evt.rssi);*/
+}
+
 void pwm_control(void)
 {
   short curr_sec;
   now = rtc.now();
   curr_sec = 60*(24*now.hour() + 60*now.minute() + now.second());
-
+/*
   if(infoModel.currentMode == SUNSHINE_MODE)
   {
     for(int i = 0; i < NUM_OF_PWM_CHANNELS; i++)
     {
       int j, pwm;
       short x0;
-      float y0, a; /* linear interpolation */
+      float y0, a; // linear interpolation
 
       if(i == 0)
         j = NUM_OF_PWM_CHANNELS-1;
@@ -180,7 +255,7 @@ void pwm_control(void)
       }
     }
   }
-
+/*
   /* Update PWM channels PWM */
 }
 
@@ -197,15 +272,96 @@ void handlePage(AsyncWebServerRequest *request)
   size_t data_len, len;
   File f;
   String contentType, path;
-  
-  DIMMER_DEBUG(Serial.println("Request URI: " + request->url()););
 
   if(request->url().endsWith("/"))
     path = request->url() + "index.html";
   else
     path = request->url();
 
+  DIMMER_DEBUG(Serial.println("Request URI: " + path););
+
+  //List all parameters (Compatibility)
+  int args = request->args();
+  for(int i=0;i<args;i++){
+    DIMMER_DEBUG(Serial.printf("ARG[%s]: %s\n", request->argName(i).c_str(), request->arg(i).c_str());)
+  }
+
   request->send(SPIFFS, path);
+}
+
+void handleSunshine(AsyncWebServerRequest *request)
+{
+  AsyncResponseStream *response = request->beginResponseStream("application/json");
+  DynamicJsonBuffer jsonBuffer;
+  int i, idx;
+  /*
+   * Retreive table index
+   */
+
+  //List all parameters (Compatibility)
+  int args = request->args();
+  if(args == 0)
+  {
+    DIMMER_DEBUG(Serial.println("No GET parameters"););
+    request->send(404, "text/plain", "No GET parameters");
+    return;
+  }
+
+  DIMMER_DEBUG(Serial.printf("Sunshine ARG[%s]: %s\n", request->argName((size_t)0).c_str(), request->arg((size_t)0).c_str());)
+
+  if(!request->argName((size_t)0).equals("table"))
+  {
+    DIMMER_DEBUG(Serial.println("Wrong GET parameter " + request->argName(0)););
+    request->send(404, "text/plain", "Wrong GET parameter " + request->argName(0));
+    return;
+  }
+
+  idx = request->arg((size_t)0).toInt();
+
+  if(idx > 15)
+  {
+    DIMMER_DEBUG(Serial.println("Wrong GET table value " + String(idx)););
+    request->send(404, "text/plain", "Wrong GET table value " + String(idx));
+    return;
+  }
+
+  JsonObject &root = jsonBuffer.createObject();
+  if(root.success() == false)
+  {
+    DIMMER_DEBUG(Serial.println("Unable to create root JsonObject"););
+    request->send(404, "text/plain", "Unable to create root JsonObject");
+    return;
+  }
+
+  root["ID"] = String(idx);
+  JsonArray  &array = jsonBuffer.createArray();
+  if(array.success() == false)
+  {
+    DIMMER_DEBUG(Serial.println("Unable to create array JsonArray"););
+    request->send(404, "text/plain", "Unable to create array JsonArray");
+    return;
+  }
+
+  for(i = 0; i < NUM_OF_PWM_CHANNELS; i++)
+  {
+    JsonObject &obj = jsonBuffer.createObject();
+    if(obj.success() == false)
+    {
+      DIMMER_DEBUG(Serial.println("Unable to create obj JsonObject"););
+      request->send(404, "text/plain", "Unable to create obj JsonObject");
+      return;
+    }
+    obj["CH"] = String(i);
+    obj["Time"] = getTimeString(idx, i);
+    obj["PWM"] = String((int)infoModel.sunshine[idx][i].pwm);
+    array.add(obj);
+  }
+
+  root["SUNSHINE"] = array;
+
+  root.printTo(*response);
+  DIMMER_DEBUG(root.prettyPrintTo(Serial););
+  request->send(response);
 }
 
 void handleNotFound(AsyncWebServerRequest *request)
@@ -228,19 +384,19 @@ void handleNotFound(AsyncWebServerRequest *request)
 
 void nullHandler(AsyncWebServerRequest *request)
 {
-  
+
 }
 
 void nullUpload(AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final)
 {
-  
+
 }
 
 void statusPostJson(AsyncWebServerRequest *request, JsonVariant &json)
 {
   JsonArray &status = json.as<JsonArray>();
-    
-  if(!status.success()) 
+
+  if(!status.success())
   {
     DIMMER_DEBUG(Serial.println("Error in deserialize JSON"););
   }
@@ -256,21 +412,21 @@ void statusPostJson(AsyncWebServerRequest *request, JsonVariant &json)
       DIMMER_DEBUG(Serial.print("PWM: "););
       DIMMER_DEBUG(Serial.println(ch["PWM"].as<String>()););
     }
-  }  
+  }
 
-  request->send(200, "text/html", "");  
+  request->send(200, "text/html", "");
 }
 
 void sunshinePostJson(AsyncWebServerRequest *request, JsonVariant &json)
 {
   JsonObject &object = json.as<JsonObject>();
-  
-  if(!object.success()) 
+
+  if(!object.success())
   {
     DIMMER_DEBUG(Serial.println("Error in deserialize JSON"););
   }
   else
-  { 
+  {
     int id = object["ID"].as<int>();
     JsonArray &sunshine = object["SUNSHINE"].as<JsonArray&>();
 
@@ -290,7 +446,7 @@ void sunshinePostJson(AsyncWebServerRequest *request, JsonVariant &json)
     }
   }
 
-  request->send(200, "text/html", "");  
+  request->send(200, "text/html", "");
 }
 
 void networkPostJson(AsyncWebServerRequest *request, JsonVariant &json)
@@ -303,13 +459,35 @@ void handleNetworkPost(AsyncWebServerRequest *request, uint8_t *data, size_t len
 
 }
 
+void initInfoModel(void)
+{
+  int i, j;
+
+  for(i = 0; i < NUM_OF_SUNSHINE_SLOTS; i++)
+  {
+    for(j = 0; j < NUM_OF_PWM_CHANNELS; j++)
+    {
+      infoModel.sunshine[i][j].hh = 2 + i;
+      infoModel.sunshine[i][j].mm = 5*j;
+      if(i < 8)
+      {
+        infoModel.sunshine[i][j].pwm = 5*j + 5*i;
+      }
+      else
+      {
+        infoModel.sunshine[i][j].pwm = 100 - 5*(7-j) - 5*(i - 8);
+      }
+    }
+  }
+}
+
 void initWebServer(void)
 {
   AsyncCallbackJsonWebHandler* statusJson = new AsyncCallbackJsonWebHandler("/rest/status.json", statusPostJson);
   AsyncCallbackJsonWebHandler* sunshineJson = new AsyncCallbackJsonWebHandler("/rest/sunshine.json", sunshinePostJson);
   AsyncCallbackJsonWebHandler* networkJson = new AsyncCallbackJsonWebHandler(network_html_name, networkPostJson);
-  
-  
+
+
   server.on(Chart_bundle_js_name, handlePage);
   server.on(bootstrap_min_css_name, handlePage);
   server.on(bootstrap_min_js_name, handlePage);
@@ -330,7 +508,7 @@ void initWebServer(void)
 
   server.on(sunshine_html_name, HTTP_GET, handlePage);
   server.addHandler(sunshineJson);
-  server.on(sunshine_json_name, handlePage);
+  server.on(sunshine_json_name, handleSunshine);
 
   server.onNotFound(handleNotFound);
 
@@ -343,22 +521,22 @@ void setup() {
   // put your setup code here, to run once:
   DIMMER_DEBUG(Serial.begin(115200);)
   DIMMER_DEBUG(Serial.println("Starting..."););
-  
+
 //  rtc.begin();
   SPIFFS.begin();
-  
+
   /* load info model from eeprom */
   infoModel.network.AP_IP[0] = 192;
   infoModel.network.AP_IP[1] = 168;
   infoModel.network.AP_IP[2] = 44;
   infoModel.network.AP_IP[3] = 1;
 
-  
+
   IPAddress local_IP(infoModel.network.AP_IP[0],infoModel.network.AP_IP[1],infoModel.network.AP_IP[2],infoModel.network.AP_IP[3]);
 
   strcpy(infoModel.network.AP_SSID, WIFI_SSID);
   strcpy(infoModel.network.AP_Pwd, WIFI_PASSWORD);
- 
+
   /*
    * Reset the current pwm
    */
@@ -376,7 +554,15 @@ void setup() {
   ssd1306_printFixedN (0, 32, "Line 4. Double size", STYLE_BOLD, FONT_SIZE_2X);
 */
   DIMMER_DEBUG(Serial.println("Starting soft AP");)
-  
+
+  // Don't save WiFi configuration in flash - optional
+  WiFi.persistent(false);
+
+  onSoftAPModeStationConnectedHandler = WiFi.onSoftAPModeStationConnected(onSoftAPModeStationConnected);
+  onSoftAPModeStationDisconnectedHandler = WiFi.onSoftAPModeStationDisconnected(onSoftAPModeStationDisconnected);
+  onSoftAPModeProbeRequestReceivedHandler = WiFi.onSoftAPModeProbeRequestReceived(onSoftAPModeProbeRequestReceived);
+
+
   WiFi.softAPConfig(local_IP, local_IP, subnet);
   bool ret = WiFi.softAP(infoModel.network.AP_SSID, infoModel.network.AP_Pwd);
 
@@ -389,21 +575,20 @@ void setup() {
     DIMMER_DEBUG(Serial.println("Failed to start soft AP");)
   }
 
+  onStationModeConnectedHandler = WiFi.onStationModeConnected(onStationModeConnected);
+  onStationModeDisconnectedHandler = WiFi.onStationModeDisconnected(onStationModeDisconnected);
+  onStationModeAuthModeChangedHandler = WiFi.onStationModeAuthModeChanged(onStationModeAuthModeChanged);
+  onStationModeGotIPHandler = WiFi.onStationModeGotIP(onStationModeGotIP);
+  onStationModeDHCPTimeoutHandler = WiFi.onStationModeDHCPTimeout(onStationModeDHCPTimeout);
+
   WiFi.begin("MenionAP", "zy681350ab");
 
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
 
 #if !defined(DEBUG_DIMMER)
   Serial.end();
 #endif
+
+  initInfoModel();
 
   initWebServer();
 

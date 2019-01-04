@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+        <meta name="description" content="">
+        <meta name="author" content="">
+	     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+         <meta http-equiv="Pragma" content="no-cache"/>
+         <meta http-equiv="Expires" content="0"/>
+        <!-- Bootstrap core CSS -->
+        <link href="bootstrap.min.css" rel="stylesheet">
+        <!-- Custom styles for this template -->
+        <link href="dashboard.css" rel="stylesheet">
+        <link href="dataTables.bootstrap.min.css" rel="stylesheet">
+        <link href="select.bootstrap.min.css" rel="stylesheet">
+	    <style>
+	    </style>
+   	    <script src="jquery-3.3.1.min.js"></script>
+        <script>window.jQuery || document.write('<script src="jquery-3.3.1.min.js.js"><\/script>')</script>
+        <script src="bootstrap.min.js"></script>    
+    </head>	
+    <body>
+        <div class="form-group">
+            <label for="Available Networks">Available Networks</label>
+            <div id="AvailableNetworks">
+                <table class="table table-striped table-sm" id="scannedNetworks">
+                    <thead>
+                        <tr>
+                            <th>SSID</th>
+                            <th>Crypto</th>
+                            <th>Signal</th>
+                        </tr>
+                    </thead>
+                </table>    
+            </div>
+        </div>
+        <button type="button" class="btn btn-primary" aria-pressed="false" autocomplete="off" onclick="LoadJSON()">
+            Scan
+        </button>
+        <hr />
+        <label for="AccessPointConfig">Access Point configuration</label>
+        <div id=="AccessPointConfig">
+            <div class="form-group row">
+                <label for="AP_SSID" class="col-sm-2 col-form-label">AP SSID</label>
+                <div class="col-sm-4">
+                    <input type="text" class="form-control" id="AP_SSID" placeholder="">
+                </div>
+            </div>
+        </div>
+        <div class="form-group row">
+            <label for="AP_IP" class="col-sm-2 col-form-label">AP IP</label>
+            <div class="col-sm-4">
+                <input type="text" class="form-control" id="AP_IP" placeholder="">
+            </div>
+        </div>
+    </body>
+
+    <script src="jquery.dataTables.min.js"></script>
+    <script src="dataTables.bootstrap.min.js"></script>
+    <script src="dataTables.select.min.js"></script>
+
+    <script>
+    
+    var Network;
+    
+    function sendJSON() {
+        $.ajax({
+            url: 'status.html',
+            type: 'POST',
+            data: JSON.stringify(Status),
+            contentType: 'application/json; charset=utf-8',
+            dataType: 'json',
+            async: false,
+            success: function(msg) {
+                alert(msg);
+            }
+        });
+    } 
+
+    function storeJSON(data) {
+        Network = data
+    }
+
+    function networkSelected(e, dt, type, indexes) {
+        var rowData = table.rows( indexes ).data().toArray();
+    }
+
+    function updateOptions() {
+        var target = $('#AvailableNetworks');
+
+        var table = document.createElement("table");
+
+        // CREATE HTML TABLE HEADER ROW USING THE EXTRACTED HEADERS ABOVE.
+        table.className = "table table-striped table-sm";
+        table.setAttribute('id', 'scannedNetworks');
+        var header = table.createTHead();
+        var tr = header.insertRow(0);                   // TABLE ROW.
+        var th = document.createElement("th");      // TABLE HEADER.
+        th.innerHTML = "SSID";
+        tr.appendChild(th);
+        th = document.createElement("th");
+        th.innerHTML = "Crypto";
+        tr.appendChild(th);
+        th = document.createElement("th");
+        th.innerHTML = "Signal";
+        tr.appendChild(th);
+
+        for(i = 0; i < Network.length; i++)
+        {
+            tr = table.insertRow(-1);
+            var tabCell = tr.insertCell(-1);
+            tabCell.innerHTML = Network[i]["SSID"];
+            tabCell = tr.insertCell(-1);
+            tabCell.innerHTML = Network[i]["CRYPT"];
+            tabCell = tr.insertCell(-1);
+            tabCell.innerHTML = Network[i]["STRENGTH"];
+        }
+
+        target.hide();
+        target[0].innerHTML = "";
+        target[0].appendChild(table);
+        target.show();
+        table.on('select', networkSelected);
+    }
+
+    function LoadJSON() {
+        $.ajax({ 
+            url: "network.json", 
+            dataType: 'json', 
+            async: false, 
+            success: storeJSON
+        });
+
+        updateOptions();
+    }
+
+    function onLoad() {
+
+    };
+
+    window.onload = onLoad;
+</script>
+
+</html>
