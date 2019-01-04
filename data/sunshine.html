@@ -137,7 +137,7 @@
                     x0.push(first);
                     second = moment.duration(Sunshine[0]["SUNSHINE"][j]["Time"], "HH:mm").asSeconds();
                     x = x0[j]+second;
-                    y0.push(Sunshine[Sunshine.length-1]["SUNSHINE"][j]["PWM"]);
+                    y0.push(parseInt(Sunshine[Sunshine.length-1]["SUNSHINE"][j]["PWM"],10));
                     y = Sunshine[0]["SUNSHINE"][j]["PWM"]-y0[j];
                     m.push( y / x );
 
