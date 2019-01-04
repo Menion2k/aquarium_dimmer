@@ -1,3 +1,6 @@
+#ifndef __IN_SKETCH
+#define __IN_SKETCH
+#include "Arduino.h"
 #include <AsyncEventSource.h>
 #include <AsyncJson.h>
 #include <AsyncWebSocket.h>
@@ -14,9 +17,6 @@
 #include <ESPAsyncTCPbuffer.h>
 #include <SyncClient.h>
 #include <tcp_axtls.h>
-
-#ifndef __SKETCH_H__
-#define __SKETCH_H__
 
 #include <RTClib.h>
 #include <FS.h>
@@ -54,7 +54,6 @@
 #include <ArduinoJson.h>
 #include "html.h"
 #endif
-
 
 #define DEBUG_DIMMER
 
@@ -150,6 +149,20 @@ String getTimeString(const int idx, const int j)
   return String(buf);
 }
 
+int getHHFromString(String &s)
+{
+  int hh, mm;
+    sscanf(s.c_str(), "%02d:%02d", &hh, &mm);
+  return hh;
+}
+
+int getMMFromString(String &s)
+{
+  int hh, mm;
+    sscanf(s.c_str(), "%02d:%02d", &hh, &mm);
+  return mm;
+}
+
 void onStationModeConnected(const WiFiEventStationModeConnected &ev)
 {
   Serial.print("Connected to SSID: " + ev.ssid);
@@ -204,38 +217,45 @@ void pwm_control(void)
 {
   short curr_sec;
   now = rtc.now();
-  curr_sec = 60*(24*now.hour() + 60*now.minute() + now.second());
-/*
+  curr_sec = 3600*now.hour() + 60*now.minute() + now.second();
+
+  //DIMMER_DEBUG(Serial.printf("Updating PWM %02d:%02d:%02d", now.hour(), now.minute(), now.second());)
   if(infoModel.currentMode == SUNSHINE_MODE)
   {
+    /* Loop over channels */
     for(int i = 0; i < NUM_OF_PWM_CHANNELS; i++)
     {
-      int j, pwm;
+      int j, k, pwm;
       short x0;
       float y0, a; // linear interpolation
 
-      if(i == 0)
-        j = NUM_OF_PWM_CHANNELS-1;
-      else
-        j = i-1;
+      /* Find sunshine timeslot bin where we are and store in j, bin will be K=j-1;j */
+      for(j = 0; j < NUM_OF_SUNSHINE_SLOTS; j++)
+      {
+        if(curr_sec <= (3600*infoModel.sunshine[j][i].hh + 60*infoModel.sunshine[j][i].mm))
+        {
+          break;
+        }
+      }
 
-      if(i == 0)
+      if(j== 0)
       {
-        j = NUM_OF_PWM_CHANNELS-1;
-        a = ( (float)(infoModel.sunshine[0].pwm - infoModel.sunshine[j].pwm) /
-            (float)60.0*((60*infoModel.sunshine[0].hh+infoModel.sunshine[0].mm) +
-                    (1440 - 60*infoModel.sunshine[j].hh - infoModel.sunshine[j].mm)));
-        x0 = 60*(1440 - 60*infoModel.sunshine[j].hh - infoModel.sunshine[j].mm);
+        k = NUM_OF_SUNSHINE_SLOTS-1;
+        a = ( (float)(infoModel.sunshine[0][i].pwm - infoModel.sunshine[k][i].pwm) /
+            (float)60.0*((60*infoModel.sunshine[0][i].hh+infoModel.sunshine[0][i].mm) +
+                    (1440 - 60*infoModel.sunshine[k][i].hh - infoModel.sunshine[k][i].mm)));
+        x0 = 60*(1440 - 60*infoModel.sunshine[k][i].hh - infoModel.sunshine[k][i].mm);
       }
       else
       {
-        j = i-1;
-        a = ( (float)(infoModel.sunshine[0].pwm - infoModel.sunshine[j].pwm) /
-              (float)60.0*((60*infoModel.sunshine[0].hh+infoModel.sunshine[0].mm) -
-                      (60*infoModel.sunshine[j].hh + infoModel.sunshine[j].mm)));
-        x0 = 60*(60*infoModel.sunshine[j].hh + infoModel.sunshine[j].mm);
+        k = j-1;
+        a = ( (float)(infoModel.sunshine[j][i].pwm - infoModel.sunshine[k][i].pwm) /
+              (float)60.0*((60*infoModel.sunshine[j][i].hh+infoModel.sunshine[j][i].mm) -
+                      (60*infoModel.sunshine[k][i].hh + infoModel.sunshine[k][i].mm)));
+        x0 = 60*(60*infoModel.sunshine[k][i].hh + infoModel.sunshine[k][i].mm);
       }
-      y0 = infoModel.sunshine[j].pwm;
+
+      y0 = infoModel.sunshine[k][i].pwm;
 
       pwm = a*(curr_sec-x0)+y0;
 
@@ -423,10 +443,11 @@ void sunshinePostJson(AsyncWebServerRequest *request, JsonVariant &json)
 
   if(!object.success())
   {
-    DIMMER_DEBUG(Serial.println("Error in deserialize JSON"););
+  DIMMER_DEBUG(Serial.println("Error in deserialize JSON"););
   }
   else
   {
+    int chnum;
     int id = object["ID"].as<int>();
     JsonArray &sunshine = object["SUNSHINE"].as<JsonArray&>();
 
@@ -434,6 +455,7 @@ void sunshinePostJson(AsyncWebServerRequest *request, JsonVariant &json)
     for(JsonArray::iterator it = sunshine.begin(); it != sunshine.end(); ++it)
     {
       JsonObject &ch = it->as<JsonObject&>();
+      String time;
 
       DIMMER_DEBUG(Serial.print("CH: "););
       DIMMER_DEBUG(Serial.println(ch["CH"].as<String>()););
@@ -443,6 +465,13 @@ void sunshinePostJson(AsyncWebServerRequest *request, JsonVariant &json)
 
       DIMMER_DEBUG(Serial.print("PWM: "););
       DIMMER_DEBUG(Serial.println(ch["PWM"].as<String>()););
+
+      chnum = ch["CH"].as<int>();
+      time = ch["Time"].as<String>();
+
+      infoModel.sunshine[id][chnum].pwm = ch["PWM"].as<int>();
+      infoModel.sunshine[id][chnum].hh = getHHFromString(time);
+      infoModel.sunshine[id][chnum].mm = getMMFromString(time);
     }
   }
 
@@ -478,6 +507,11 @@ void initInfoModel(void)
         infoModel.sunshine[i][j].pwm = 100 - 5*(7-j) - 5*(i - 8);
       }
     }
+  }
+
+  for(j = 0; j < NUM_OF_PWM_CHANNELS; j++)
+  {
+    dimmer.channel[j].curr_pwm = 0;
   }
 }
 
@@ -592,7 +626,7 @@ void setup() {
 
   initWebServer();
 
-//  pwm.attach(PWM_UPDATE_RATE, pwm_control);*/
+  pwm.attach(PWM_UPDATE_RATE, pwm_control);
 }
 
 void loop() {
