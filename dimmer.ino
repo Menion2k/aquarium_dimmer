@@ -17,8 +17,7 @@
 #include <ESPAsyncTCPbuffer.h>
 #include <SyncClient.h>
 #include <tcp_axtls.h>
-
-#include <RTClib.h>
+#include <uRTCLib.h>
 #include <FS.h>
 #include <font6x8.h>
 #include <nano_engine.h>
@@ -119,8 +118,7 @@ DimmerInfoModel infoModel;
 Dimmer dimmer;
 Ticker pwm;
 AsyncWebServer server(80);
-RTC_DS1307 rtc;
-DateTime now;
+uRTCLib rtc(0x68, 0x50);
 
 uint8_t data[MAX_WEB_CHUNK_SIZE];
 
@@ -213,65 +211,120 @@ void onSoftAPModeProbeRequestReceived(const WiFiEventSoftAPModeProbeRequestRecei
   Serial.println(evt.rssi);*/
 }
 
+#define SIM_RTC
 void pwm_control(void)
 {
-  short curr_sec;
-  now = rtc.now();
-  curr_sec = 3600*now.hour() + 60*now.minute() + now.second();
+  int curr_sec;
+#if defined(SIM_RTC)
+  static int seconds = 0, minutes = 59, hours = 23;
+      
+  seconds++;
+  
+  if(seconds >= 60)
+  {
+    seconds = 0;
+    minutes++;
+  }
 
-  //DIMMER_DEBUG(Serial.printf("Updating PWM %02d:%02d:%02d", now.hour(), now.minute(), now.second());)
-  if(infoModel.currentMode == SUNSHINE_MODE)
+  if(minutes >= 60)
+  {
+    minutes = 0;
+    hours++;
+  }
+
+  if(hours >= 24)
+  {
+    hours = 0;
+  }
+#else  
+  int minutes, hours, seconds;  
+  rtc.refresh();
+
+  hours = rtc.hour();
+  minutes = rtc.minute();
+  seconds = rtc.second();
+#endif
+  
+  curr_sec = 3600*hours + 60*minutes + seconds;
+  if (infoModel.currentMode == SUNSHINE_MODE)
   {
     /* Loop over channels */
-    for(int i = 0; i < NUM_OF_PWM_CHANNELS; i++)
+    for (int i = 0; i < NUM_OF_PWM_CHANNELS; i++)
     {
       int j, k, pwm;
-      short x0;
-      float y0, a; // linear interpolation
+      int x0;
+      float y0, a, a1, a2; // linear interpolation
 
       /* Find sunshine timeslot bin where we are and store in j, bin will be K=j-1;j */
-      for(j = 0; j < NUM_OF_SUNSHINE_SLOTS; j++)
+      for (j = 0; j < NUM_OF_SUNSHINE_SLOTS; j++)
       {
-        if(curr_sec <= (3600*infoModel.sunshine[j][i].hh + 60*infoModel.sunshine[j][i].mm))
+        if (curr_sec <= (3600 * infoModel.sunshine[j][i].hh + 60 * infoModel.sunshine[j][i].mm))
         {
           break;
         }
       }
 
-      if(j== 0)
+      if (j == NUM_OF_SUNSHINE_SLOTS)
       {
-        k = NUM_OF_SUNSHINE_SLOTS-1;
-        a = ( (float)(infoModel.sunshine[0][i].pwm - infoModel.sunshine[k][i].pwm) /
-            (float)60.0*((60*infoModel.sunshine[0][i].hh+infoModel.sunshine[0][i].mm) +
-                    (1440 - 60*infoModel.sunshine[k][i].hh - infoModel.sunshine[k][i].mm)));
-        x0 = 60*(1440 - 60*infoModel.sunshine[k][i].hh - infoModel.sunshine[k][i].mm);
+        /* No valid slot has been found, means we are between last slot and
+           midnight, so choose the first slot in the morning to compute current value*/
+        j = 0;
+      }
+
+      if (j == 0)
+      {
+        k = NUM_OF_SUNSHINE_SLOTS - 1;
+        a1 = infoModel.sunshine[0][i].pwm - infoModel.sunshine[k][i].pwm;
+        a2 = 60 * infoModel.sunshine[0][i].hh + infoModel.sunshine[0][i].mm;
+        a2 = a2 + (1440 - 60 * infoModel.sunshine[k][i].hh - infoModel.sunshine[k][i].mm);
+        a2 = 60 * a2;
+
+        a = (float)(a1) / (float)(a2);
+        x0 = 60 * (60 * infoModel.sunshine[k][i].hh + infoModel.sunshine[k][i].mm);
+        
+        if (curr_sec < x0)
+        {
+          /* We are above midnight*/
+          curr_sec = curr_sec + 24 * 60 * 60;
+        }
       }
       else
       {
-        k = j-1;
-        a = ( (float)(infoModel.sunshine[j][i].pwm - infoModel.sunshine[k][i].pwm) /
-              (float)60.0*((60*infoModel.sunshine[j][i].hh+infoModel.sunshine[j][i].mm) -
-                      (60*infoModel.sunshine[k][i].hh + infoModel.sunshine[k][i].mm)));
-        x0 = 60*(60*infoModel.sunshine[k][i].hh + infoModel.sunshine[k][i].mm);
+        k = j - 1;
+        a1 = (infoModel.sunshine[j][i].pwm - infoModel.sunshine[k][i].pwm);
+        a2 =       60 * (int)infoModel.sunshine[j][i].hh + (int)infoModel.sunshine[j][i].mm;
+        a2 = a2 - (60 * (int)infoModel.sunshine[k][i].hh + (int)infoModel.sunshine[k][i].mm);
+        a2 = 60 * a2;
+
+        a = (float)(a1) / (float)a2;
+        x0 = 60 * (60 * (int)infoModel.sunshine[k][i].hh + (int)infoModel.sunshine[k][i].mm);
       }
 
       y0 = infoModel.sunshine[k][i].pwm;
 
-      pwm = a*(curr_sec-x0)+y0;
+      pwm = a*(curr_sec - x0) + y0;
 
-      if(pwm > dimmer.channel[i].curr_pwm)
+      if (pwm > dimmer.channel[i].curr_pwm)
       {
-        if((pwm - dimmer.channel[i].curr_pwm) > MAX_PWM_SINGLE_STEP)
+        DIMMER_DEBUG(Serial.printf("Updating PWM CH[%2d], Time: %02d:%02d:%02d, %3d ", i, hours, minutes, seconds, dimmer.channel[i].curr_pwm);)
+
+        if ((pwm - dimmer.channel[i].curr_pwm) > MAX_PWM_SINGLE_STEP)
           dimmer.channel[i].curr_pwm += MAX_PWM_SINGLE_STEP;
         else
           dimmer.channel[i].curr_pwm = pwm;
+          
+        DIMMER_DEBUG(Serial.printf("<- %3d\n", dimmer.channel[i].curr_pwm);)
       }
-      else
+      else if (pwm < dimmer.channel[i].curr_pwm)
       {
-        if((dimmer.channel[i].curr_pwm - pwm)> MAX_PWM_SINGLE_STEP)
+        DIMMER_DEBUG(Serial.printf("Updating PWM CH[%2d], Time: %02d:%02d:%02d, %3d ", i, hours, minutes, seconds, dimmer.channel[i].curr_pwm);)
+
+        if ((dimmer.channel[i].curr_pwm - pwm)> MAX_PWM_SINGLE_STEP)
           dimmer.channel[i].curr_pwm -= MAX_PWM_SINGLE_STEP;
         else
           dimmer.channel[i].curr_pwm = pwm;
+
+        DIMMER_DEBUG(Serial.printf("<- %3d\n", dimmer.channel[i].curr_pwm);)
       }
     }
   }
@@ -383,6 +436,42 @@ void handleSunshine(AsyncWebServerRequest *request)
   DIMMER_DEBUG(root.prettyPrintTo(Serial););
   request->send(response);
 }
+
+void handleStatus(AsyncWebServerRequest *request)
+{
+  int i;
+  AsyncResponseStream *response = request->beginResponseStream("application/json");
+  DynamicJsonBuffer jsonBuffer;
+
+  JsonArray  &array = jsonBuffer.createArray();
+
+  if(array.success() == false)
+  {
+    DIMMER_DEBUG(Serial.println("Unable to create array JsonArray"););
+    request->send(404, "text/plain", "Unable to create array JsonArray");
+    return;
+  }
+  
+  for(i = 0; i < NUM_OF_PWM_CHANNELS; i++)
+  {
+    JsonObject &obj = jsonBuffer.createObject();
+    if(obj.success() == false)
+    {
+      DIMMER_DEBUG(Serial.println("Unable to create obj JsonObject"););
+      request->send(404, "text/plain", "Unable to create obj JsonObject");
+      return;
+    }
+    
+    obj["CH"] = String(i);
+    obj["PWM"] = String((int)dimmer.channel[i].curr_pwm);
+    array.add(obj);
+  }
+
+  array.printTo(*response);
+  DIMMER_DEBUG(array.prettyPrintTo(Serial););
+  request->send(response);
+}
+
 
 void handleNotFound(AsyncWebServerRequest *request)
 {
@@ -513,6 +602,8 @@ void initInfoModel(void)
   {
     dimmer.channel[j].curr_pwm = 0;
   }
+
+  infoModel.currentMode = SUNSHINE_MODE;
 }
 
 void initWebServer(void)
@@ -538,7 +629,7 @@ void initWebServer(void)
 
   server.on(status_html_name, HTTP_GET, handlePage);
   server.addHandler(statusJson);
-  server.on(status_json_name, handlePage);
+  server.on(status_json_name, handleStatus);
 
   server.on(sunshine_html_name, HTTP_GET, handlePage);
   server.addHandler(sunshineJson);
